@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ZeuzMonaco</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: #1e1e1e;
+      overflow: hidden;
+    }
+    #editor {
+      width: 100%;
+      height: 100%;
+    }
+    #custom-cursor {
+      position: absolute;
+      width: 2px;
+      background: #FFD700;
+      transition: all 0.1s ease;
+      pointer-events: none;
+      z-index: 1000;
+    }
+    .monaco-editor .view-line {
+      text-shadow: 0 0 2px #FFD700, 0 0 4px #FFD700;
+    }
+    @keyframes popIn {
+      0% { transform: scale(1.5); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes popOut {
+      0% { transform: scale(1); opacity: 1; }
+      100% { transform: scale(0.7); opacity: 0; }
+    }
+    .letterAdded {
+      animation: popIn 0.2s ease-out forwards;
+    }
+    .letterDeleted {
+      animation: popOut 0.2s ease-out forwards;
+    }
+  </style>
+  <script src="https://unpkg.com/monaco-editor@latest/min/vs/loader.js"></script>
+</head>
+<body>
+
+<div id="editor"></div>
+<div id="custom-cursor"></div>
+
+<script>
+  require.config({ paths: { 'vs': 'https://unpkg.com/monaco-editor@latest/min/vs' } });
+
+  require(['vs/editor/editor.main'], function() {
+    monaco.languages.register({ id: 'lua' });
+
+    monaco.languages.setMonarchTokensProvider('lua', {
+      tokenizer: {
+        root: [
+          [/\b(print|require|function|local|if|then|else|elseif|end|for|in|pairs|ipairs|while|do|return|break|and|or|not)\b/, 'keyword'],
+          [/\b(true|false|nil)\b/, 'constant'],
+          [/"([^"\\]|\\.)*$/, 'string.invalid' ],
+          [/"/,  { token: 'string.quote', bracket: '@open', next: '@string' } ],
+          [/'[^']*'/, 'string'],
+          [/[{}()\[\]]/, '@brackets'],
+          [/[<>](=)?/, 'operator'],
+          [/[=+\-*/%^#]/, 'operator'],
+          [/[a-zA-Z_]\w*/, 'identifier'],
+        ],
+        string: [
+          [/[^\\"]+/,  'string'],
+          [/\\./,      'string.escape'],
+          [/"/,        { token: 'string.quote', bracket: '@close', next: '@pop' } ]
+        ]
+      }
+    });
+
+    monaco.editor.defineTheme('custom-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: '', foreground: 'FFFF00' },
+        { token: 'keyword', foreground: 'FFD700', fontStyle: 'bold' },
+        { token: 'constant', foreground: 'FFEE58' },
+        { token: 'string', foreground: 'FFF176', fontStyle: 'italic' },
+        { token: 'operator', foreground: 'FFEB3B' },
+        { token: 'identifier', foreground: 'FFFF00' },
+      ],
+      colors: {
+        'editor.background': '#1e1e1e',
+        'editorCursor.foreground': '#FFD700',
+        'editor.lineHighlightBackground': '#2a2a2a',
+        'editorLineNumber.foreground': '#888888',
+      }
+    });
+
+    const editor = monaco.editor.create(document.getElementById('editor'), {
+      value: "--]]\n-- Thank you for using Zeuz!\n--]]\nprint('Welcome to Zeuz.')\nfunction greet(name)\n  print('Hello ' .. name)\nend",
+      language: 'lua',
+      theme: 'custom-dark',
+      fontSize: 16,
+      fontFamily: 'Fira Code, monospace',
+      lineHeight: 22,
+      automaticLayout: true,
+      minimap: { enabled: false },
+      cursorBlinking: 'hidden',
+    });
+
+    monaco.editor.setTheme('custom-dark');
+
+    const cursorEl = document.getElementById('custom-cursor');
+
+    function updateCursor() {
+      const model = editor.getModel();
+      const position = editor.getPosition();
+      const layoutInfo = editor.getLayoutInfo();
+      const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
+
+      if (!position) return;
+
+      const coords = editor.getScrolledVisiblePosition(position);
+      if (coords) {
+        cursorEl.style.top = (coords.top) + 'px';
+        cursorEl.style.left = (coords.left) + 'px';
+        cursorEl.style.height = lineHeight + 'px';
+      }
+    }
+
+    editor.onDidChangeCursorPosition(updateCursor);
+    editor.onDidScrollChange(updateCursor);
+    editor.onDidLayoutChange(updateCursor);
+    editor.onDidChangeModelContent(updateCursor);
+
+    setTimeout(updateCursor, 500);
+
+    let lastDecorations = [];
+
+    editor.onDidChangeModelContent((event) => {
+      if (event.isFlush) return;
+
+      let newDecorations = [];
+
+      event.changes.forEach(change => {
+        const { range, text } = change;
+        const isDelete = text.length === 0;
+
+        if (!isDelete) {
+          for (let i = 0; i < text.length; i++) {
+            newDecorations.push({
+              range: new monaco.Range(
+                range.startLineNumber,
+                range.startColumn + i,
+                range.startLineNumber,
+                range.startColumn + i + 1
+              ),
+              options: {
+                inlineClassName: 'letterAdded'
+              }
+            });
+          }
+        } else {
+          if (range.startColumn > 1) {
+            newDecorations.push({
+              range: new monaco.Range(
+                range.startLineNumber,
+                range.startColumn - 1,
+                range.startLineNumber,
+                range.startColumn
+              ),
+              options: {
+                inlineClassName: 'letterDeleted'
+              }
+            });
+          }
+        }
+      });
+
+      lastDecorations = editor.deltaDecorations(lastDecorations, newDecorations);
+
+      setTimeout(() => {
+        lastDecorations = editor.deltaDecorations(lastDecorations, []);
+      }, 300);
+    });
+
+    monaco.languages.registerCompletionItemProvider('lua', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordAtPosition(position);
+        const suggestions = [
+          {
+            label: 'print',
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: 'print()',
+            documentation: 'Prints text to the console.',
+            detail: 'function print'
+          },
+          {
+            label: 'require',
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: 'require()',
+            documentation: 'Requires a module.',
+            detail: 'function require'
+          },
+          {
+            label: 'function',
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: 'function ()\nend',
+            documentation: 'Defines a function.',
+            detail: 'keyword function'
+          },
+          {
+            label: 'local',
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: 'local ',
+            documentation: 'Defines a local variable.',
+            detail: 'keyword local'
+          }
+        ];
+
+        return { suggestions: suggestions };
+      }
+    });
+
+  });
+</script>
+
+</body>
+</html>
