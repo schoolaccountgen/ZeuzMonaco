@@ -2,17 +2,48 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ZeuzMonaco</title>
+  <title>Monaco with Dynamic Tabs</title>
   <style>
     body {
       margin: 0;
       height: 100vh;
       background: #1e1e1e;
-      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      font-family: sans-serif;
+    }
+    #tabs {
+      display: flex;
+      background: #1E1E1E;
+      padding: 5px 10px;
+      gap: 10px;
+      border-bottom: 1px solid #333;
+      align-items: center;
+    }
+    .tab {
+      color: #FFD700;
+      background: #1E1E1E;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .tab.active {
+      background: #FFD700;
+      color: #1e1e1e;
+      font-weight: bold;
+    }
+    #add-tab {
+      color: #FFD700;
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 10px;
     }
     #editor {
-      width: 100%;
-      height: 100%;
+      flex: 1;
     }
     #custom-cursor {
       position: absolute;
@@ -39,18 +70,37 @@
     .letterDeleted {
       animation: popOut 0.2s ease-out forwards;
     }
+    input.rename-input {
+      font-size: 14px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: none;
+      outline: none;
+      background: #FFD700;
+      color: #FFD700;
+    }
   </style>
   <script src="https://unpkg.com/monaco-editor@latest/min/vs/loader.js"></script>
 </head>
 <body>
 
+<div id="tabs">
+  <!-- Tabs go here -->
+  <button id="add-tab">+</button>
+</div>
 <div id="editor"></div>
 <div id="custom-cursor"></div>
 
 <script>
+  const files = {
+    'main.lua': "--]]\n-- Thank you for using Zeuz!\n--]]\nprint('Welcome to Zeuz.')\nfunction greet(user)\n print('Hello... User.')\nend",
+  };
+
+  let editor, currentFile = 'main.lua', lastDecorations = [];
+
   require.config({ paths: { 'vs': 'https://unpkg.com/monaco-editor@latest/min/vs' } });
 
-  require(['vs/editor/editor.main'], function() {
+  require(['vs/editor/editor.main'], function () {
     monaco.languages.register({ id: 'lua' });
 
     monaco.languages.setMonarchTokensProvider('lua', {
@@ -58,8 +108,8 @@
         root: [
           [/\b(print|require|function|local|if|then|else|elseif|end|for|in|pairs|ipairs|while|do|return|break|and|or|not)\b/, 'keyword'],
           [/\b(true|false|nil)\b/, 'constant'],
-          [/"([^"\\]|\\.)*$/, 'string.invalid' ],
-          [/"/,  { token: 'string.quote', bracket: '@open', next: '@string' } ],
+          [/"([^"\\]|\\.)*$/, 'string.invalid'],
+          [/"/, { token: 'string.quote', bracket: '@open', next: '@string' }],
           [/'[^']*'/, 'string'],
           [/[{}()\[\]]/, '@brackets'],
           [/[<>](=)?/, 'operator'],
@@ -67,9 +117,9 @@
           [/[a-zA-Z_]\w*/, 'identifier'],
         ],
         string: [
-          [/[^\\"]+/,  'string'],
-          [/\\./,      'string.escape'],
-          [/"/,        { token: 'string.quote', bracket: '@close', next: '@pop' } ]
+          [/[^\\"]+/, 'string'],
+          [/\\./, 'string.escape'],
+          [/"/, { token: 'string.quote', bracket: '@close', next: '@pop' }]
         ]
       }
     });
@@ -93,8 +143,8 @@
       }
     });
 
-    const editor = monaco.editor.create(document.getElementById('editor'), {
-      value: "--]]\n-- Thank you for using Zeuz!\n--]]\nprint('Welcome to Zeuz.')\nfunction greet(name)\n  print('Hello ' .. name)\nend",
+    editor = monaco.editor.create(document.getElementById('editor'), {
+      value: files[currentFile],
       language: 'lua',
       theme: 'custom-dark',
       fontSize: 16,
@@ -110,18 +160,13 @@
     const cursorEl = document.getElementById('custom-cursor');
 
     function updateCursor() {
-      const model = editor.getModel();
       const position = editor.getPosition();
-      const layoutInfo = editor.getLayoutInfo();
       const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
-
-      if (!position) return;
-
       const coords = editor.getScrolledVisiblePosition(position);
       if (coords) {
-        cursorEl.style.top = (coords.top) + 'px';
-        cursorEl.style.left = (coords.left) + 'px';
-        cursorEl.style.height = lineHeight + 'px';
+        cursorEl.style.top = coords.top + 'px';
+        cursorEl.style.left = coords.left + 'px';
+        cursorEl.style.height = lineHeight - 'px';
       }
     }
 
@@ -130,19 +175,12 @@
     editor.onDidLayoutChange(updateCursor);
     editor.onDidChangeModelContent(updateCursor);
 
-    setTimeout(updateCursor, 500);
-
-    let lastDecorations = [];
-
     editor.onDidChangeModelContent((event) => {
       if (event.isFlush) return;
-
       let newDecorations = [];
-
       event.changes.forEach(change => {
         const { range, text } = change;
         const isDelete = text.length === 0;
-
         if (!isDelete) {
           for (let i = 0; i < text.length; i++) {
             newDecorations.push({
@@ -152,9 +190,7 @@
                 range.startLineNumber,
                 range.startColumn + i + 1
               ),
-              options: {
-                inlineClassName: 'letterAdded'
-              }
+              options: { inlineClassName: 'letterAdded' }
             });
           }
         } else {
@@ -166,59 +202,67 @@
                 range.startLineNumber,
                 range.startColumn
               ),
-              options: {
-                inlineClassName: 'letterDeleted'
-              }
+              options: { inlineClassName: 'letterDeleted' }
             });
           }
         }
       });
-
       lastDecorations = editor.deltaDecorations(lastDecorations, newDecorations);
-
       setTimeout(() => {
         lastDecorations = editor.deltaDecorations(lastDecorations, []);
       }, 300);
     });
 
-    monaco.languages.registerCompletionItemProvider('lua', {
-      provideCompletionItems: (model, position) => {
-        const word = model.getWordAtPosition(position);
-        const suggestions = [
-          {
-            label: 'print',
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: 'print()',
-            documentation: 'Prints text to the console.',
-            detail: 'function print'
-          },
-          {
-            label: 'require',
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: 'require()',
-            documentation: 'Requires a module.',
-            detail: 'function require'
-          },
-          {
-            label: 'function',
-            kind: monaco.languages.CompletionItemKind.Keyword,
-            insertText: 'function ()\nend',
-            documentation: 'Defines a function.',
-            detail: 'keyword function'
-          },
-          {
-            label: 'local',
-            kind: monaco.languages.CompletionItemKind.Keyword,
-            insertText: 'local ',
-            documentation: 'Defines a local variable.',
-            detail: 'keyword local'
-          }
-        ];
+    function renderTabs() {
+      const tabsEl = document.getElementById('tabs');
+      tabsEl.querySelectorAll('.tab').forEach(el => el.remove());
 
-        return { suggestions: suggestions };
-      }
-    });
+      Object.keys(files).forEach((filename, index) => {
+        const tab = document.createElement('div');
+        tab.className = 'tab' + (filename === currentFile ? ' active' : '');
+        tab.innerText = filename;
+        tab.onclick = () => {
+          files[currentFile] = editor.getValue();
+          currentFile = filename;
+          editor.setValue(files[filename]);
+          updateCursor();
+          renderTabs();
+        };
+        tab.ondblclick = () => {
+          const input = document.createElement('input');
+          input.className = 'rename-input';
+          input.value = filename;
+          tab.replaceWith(input);
+          input.focus();
+          input.onblur = () => {
+            const newName = input.value.trim();
+            if (newName && newName !== filename && !files[newName]) {
+              files[newName] = files[filename];
+              delete files[filename];
+              if (currentFile === filename) currentFile = newName;
+            }
+            renderTabs();
+            editor.setValue(files[currentFile]);
+          };
+        };
+        tabsEl.insertBefore(tab, document.getElementById('add-tab'));
+      });
+    }
 
+    document.getElementById('add-tab').onclick = () => {
+      let base = "new_tab";
+      let i = 1;
+      while (files[`${base}${i}.lua`]) i++;
+      const newName = `${base}${i}.lua`;
+      files[newName] = "--]]\n--New tab created!\n--]]";
+      files[currentFile] = editor.getValue();
+      currentFile = newName;
+      editor.setValue(files[currentFile]);
+      renderTabs();
+    };
+
+    renderTabs();
+    updateCursor();
   });
 </script>
 
